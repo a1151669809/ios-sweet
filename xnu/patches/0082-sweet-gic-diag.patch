@@ -1,19 +1,8 @@
-diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
---- a/pexpert/arm/pe_fiq.c
-+++ b/pexpert/arm/pe_fiq.c
-@@ -208,6 +208,8 @@
- 	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
- 	gicd_ctlr |= GICD_CTLR_ARE_NS | GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1;
- 	gicd_write32(GICD_CTLR, gicd_ctlr);
-+	kprintf("SWEET GIC: cpu%u intid=%u isen=0x%x grp=0x%x dctlr=0x%x\n",
-+	    ml_get_cpu_number_local(), sweet_vtimer_intid, gicr_read32(GICR_ISENABLER0), gicr_read32(GICR_IGROUPR0), gicd_read32(GICD_CTLR));
- 	while (gicd_read32(GICD_CTLR) & GICD_CTLR_RWP) {
- 		;
- 	}
 diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 24f1abc..a5f6a29 100644
 --- a/osfmk/arm64/sleh.c
 +++ b/osfmk/arm64/sleh.c
-@@ -1867,6 +1867,13 @@
+@@ -1867,6 +1867,13 @@ sleh_irq(arm_saved_state_t *state)
  	if (intid >= 1020 && intid <= 1023) {
  		return; /* spurious */
  	}
@@ -28,9 +17,27 @@ diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
  		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
  		cdp->cpu_decrementer = -1; /* Large */
 diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+index bec97fb..1f07543 100644
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -704,2 +704,3 @@
+@@ -702,6 +702,7 @@ kernel_bootstrap_thread(void)
+ 	ml_spin_debug_clear_self();
+ #endif
  	(void) spllo();         /* Allow interruptions */
 +	kprintf("SWEET: spllo done, interrupts unmasked\n");
  
+ 	/*
+ 	 * This will start displaying progress to the user, start as early as possible
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index 6089db9..b509bd1 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -208,6 +208,8 @@ pe_init_fiq()
+ 	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
+ 	gicd_ctlr |= GICD_CTLR_ARE_NS | GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1;
+ 	gicd_write32(GICD_CTLR, gicd_ctlr);
++	kprintf("SWEET GIC: cpu%u intid=%u isen=0x%x grp=0x%x dctlr=0x%x\n",
++	    ml_get_cpu_number_local(), sweet_vtimer_intid, gicr_read32(GICR_ISENABLER0), gicr_read32(GICR_IGROUPR0), gicd_read32(GICD_CTLR));
+ 	while (gicd_read32(GICD_CTLR) & GICD_CTLR_RWP) {
+ 		;
+ 	}

@@ -1,0 +1,92 @@
+diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+index 75f416b..af9fb8b 100644
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -566,35 +566,46 @@ touch_thread(void *arg, wait_result_t result)
+ 		printf("SWEET TOUCH: MMIO mapping failed\n");
+ 		goto out;
+ 	}
+-	if (!touch_clocks() || !touch_se_init()) {
+-		goto out;
+-	}
+-	printf("SWEET TOUCH: TLMM vddio23=%#x irq31=%#x rst32=%#x; rails rely on XBL boot-on\n",
+-	    touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_VDDIO)),
+-	    touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_IRQ)),
+-	    touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_RST)));
+-	/* Hold the IC in reset; IRQ stays an input with the DT pull-up. */
+-	touch_gpio(GPIO_IRQ, 0, 3, 3, false, false);
+-	touch_gpio(GPIO_RST, 0, 3, 7, true, false);
+-	touch_gpio(GPIO_VDDIO, 0, 0, 7, true, true); /* already on for the panel */
+-	touch_wait(10); /* rail settling, in case a rail just came up */
+-	touch_gpio(GPIO_SDA, 2, 0, 0, false, false); /* qup14, 2 mA, bias off */
+-	touch_gpio(GPIO_SCL, 2, 0, 0, false, false);
+-	touch_gpio(GPIO_RST, 0, 3, 7, true, true); /* release reset */
+-	touch_wait(300); /* mXT boot + pending T6 RESET message */
+-	st.probing = true;
+-	int me = mxt_setup();
+-	uint8_t fid = 0;
+-	int fe = touch_read(FTS_ADDR, 0, &fid, 1);
+-	printf("SWEET TOUCH: probe 0x49 err=%d b0=%#x irq=%#x\n", fe, fid, st.irq_status);
+-	st.probing = false;
+-	if (me || st.dead) {
+-		printf("SWEET TOUCH: mXT640U not usable err=%d dead=%d (fts-ack=%d); stopping\n",
+-		    me, st.dead, fe == 0);
+-		goto out;
++	/*
++	 * Bring-up retries every 10 s and never stops: a one-shot failure used to
++	 * end in a silent dead thread whose only diagnostic line was lost in the
++	 * console spam window. The periodic retry line doubles as a heartbeat that
++	 * stays visible at the lock screen, and late rail/FW bring-up can recover.
++	 */
++	unsigned errors = 0, ticks = 0, tries = 0, hb = 0;
++	for (;; ++tries) {
++		if (!touch_clocks() || !touch_se_init()) {
++			printf("SWEET TOUCH: bring-up try %u failed; retry in 10 s\n", tries);
++			touch_wait(10000);
++			continue;
++		}
++		printf("SWEET TOUCH: TLMM vddio23=%#x irq31=%#x rst32=%#x; rails rely on XBL boot-on\n",
++		    touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_VDDIO)),
++		    touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_IRQ)),
++		    touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_RST)));
++		/* Hold the IC in reset; IRQ stays an input with the DT pull-up. */
++		touch_gpio(GPIO_IRQ, 0, 3, 3, false, false);
++		touch_gpio(GPIO_RST, 0, 3, 7, true, false);
++		touch_gpio(GPIO_VDDIO, 0, 0, 7, true, true); /* already on for the panel */
++		touch_wait(10); /* rail settling, in case a rail just came up */
++		touch_gpio(GPIO_SDA, 2, 0, 0, false, false); /* qup14, 2 mA, bias off */
++		touch_gpio(GPIO_SCL, 2, 0, 0, false, false);
++		touch_gpio(GPIO_RST, 0, 3, 7, true, true); /* release reset */
++		touch_wait(300); /* mXT boot + pending T6 RESET message */
++		st.probing = true;
++		int me = mxt_setup();
++		uint8_t fid = 0;
++		int fe = touch_read(FTS_ADDR, 0, &fid, 1);
++		printf("SWEET TOUCH: probe 0x49 err=%d b0=%#x irq=%#x\n", fe, fid, st.irq_status);
++		st.probing = false;
++		if (!me && !st.dead) {
++			break;
++		}
++		printf("SWEET TOUCH: probe try %u unusable err=%d dead=%d (fts-ack=%d); retry in 10 s\n",
++		    tries, me, st.dead, fe == 0);
++		touch_wait(10000);
+ 	}
+-	printf("SWEET TOUCH: selected Atmel mXT640U, 1080x2248, poll=10ms\n");
+-	unsigned errors = 0, ticks = 0;
++	printf("SWEET TOUCH: selected Atmel mXT640U, 1080x2248, poll=10ms (try %u)\n", tries);
+ 	while (!st.dead) {
+ 		bool chg = !(touch_rd(st.gpio, TOUCH_GPIO_IO(GPIO_IRQ)) & 1u);
+ 		if (chg || (++ticks % 100u) == 0) {
+@@ -610,6 +621,12 @@ touch_thread(void *arg, wait_result_t result)
+ 				errors = 0;
+ 			}
+ 		}
++		/* ~10 s heartbeat keeps the poll state visible in console spam. */
++		if (++hb >= 1000u) {
++			hb = 0;
++			printf("SWEET TOUCH: hb chg=%d active=%#x err=%u irq=%#x\n",
++			    chg, st.active, errors, st.irq_last);
++		}
+ 		touch_wait(10);
+ 	}
+ 	touch_report(0, st.x, st.y);
